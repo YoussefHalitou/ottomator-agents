@@ -1,216 +1,185 @@
 #!/usr/bin/env python3
 """
-Web Search Module for retrieving current information from the internet.
-This module handles web searches when the AI needs current/recent information.
+Web search module for clinic AI assistant
+Provides web search capabilities with medical disclaimers and safety features.
 """
 
-import os
-import httpx
 import asyncio
-from typing import List, Dict, Optional
-from dotenv import load_dotenv
+import logging
+import os
+from typing import List, Dict, Any, Optional
+import httpx
 import json
+from urllib.parse import quote, urlencode
 
-load_dotenv()
-
+logger = logging.getLogger(__name__)
 
 class WebSearcher:
-    """
-    A web search client that can perform searches for current information.
-    Uses Tavily API for high-quality search results.
-    """
+    """Web search client with Tavily and DuckDuckGo support"""
     
-    def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or os.getenv("TAVILY_API_KEY")
-        self.base_url = "https://api.tavily.com"
+    def __init__(self):
+        self.tavily_api_key = os.getenv("TAVILY_API_KEY")
+        self.client = httpx.AsyncClient(timeout=30.0)
         
-    async def search_web(self, query: str, max_results: int = 5) -> List[Dict]:
+    async def search_web(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
         """
-        Perform a web search and return relevant results.
+        Search the web using Tavily API or fallback methods
         
         Args:
-            query: The search query
+            query: Search query
             max_results: Maximum number of results to return
             
         Returns:
-            List of search results with title, content, and URL
+            List of search results with title, url, content
         """
-        if not self.api_key:
-            # Fallback to a simple HTTP search if no API key
-            return await self._fallback_search(query, max_results)
+        
+        # Add medical disclaimer keywords for medical queries
+        if any(keyword in query.lower() for keyword in ['botox', 'filler', 'treatment', 'medical', 'aesthetic']):
+            query += " clinical evidence medical research"
         
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{self.base_url}/search",
-                    json={
-                        "api_key": self.api_key,
-                        "query": query,
-                        "search_depth": "basic",
-                        "include_answer": True,
-                        "include_raw_content": False,
-                        "max_results": max_results,
-                        "include_domains": [],
-                        "exclude_domains": []
-                    },
-                    timeout=30.0
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    results = []
-                    
-                    # Add the direct answer if available
-                    if data.get("answer"):
-                        results.append({
-                            "title": "Direct Answer",
-                            "content": data["answer"],
-                            "url": "Multiple sources",
-                            "score": 1.0
-                        })
-                    
-                    # Add search results
-                    for result in data.get("results", []):
-                        results.append({
-                            "title": result.get("title", ""),
-                            "content": result.get("content", ""),
-                            "url": result.get("url", ""),
-                            "score": result.get("score", 0.5)
-                        })
-                    
+            # Try Tavily API first if available
+            if self.tavily_api_key:
+                results = await self._search_tavily(query, max_results)
+                if results:
+                    logger.info(f"Tavily search returned {len(results)} results")
                     return results
-                else:
-                    print(f"Tavily API error: {response.status_code}")
-                    return await self._fallback_search(query, max_results)
-                    
-        except Exception as e:
-            print(f"Web search error: {e}")
-            return await self._fallback_search(query, max_results)
-    
-    async def _fallback_search(self, query: str, max_results: int) -> List[Dict]:
-        """
-        Fallback search method when main API is unavailable.
-        Uses DuckDuckGo instant answers or similar free service.
-        """
-        try:
-            async with httpx.AsyncClient() as client:
-                # Try DuckDuckGo instant answers
-                response = await client.get(
-                    "https://api.duckduckgo.com/",
-                    params={
-                        "q": query,
-                        "format": "json",
-                        "no_html": "1",
-                        "skip_disambig": "1"
-                    },
-                    timeout=10.0
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    results = []
-                    
-                    # Add abstract if available
-                    if data.get("Abstract"):
-                        results.append({
-                            "title": f"Information about: {query}",
-                            "content": data["Abstract"],
-                            "url": data.get("AbstractURL", "DuckDuckGo"),
-                            "score": 0.8
-                        })
-                    
-                    # Add definition if available
-                    if data.get("Definition"):
-                        results.append({
-                            "title": f"Definition: {query}",
-                            "content": data["Definition"],
-                            "url": data.get("DefinitionURL", "DuckDuckGo"),
-                            "score": 0.7
-                        })
-                    
-                    # Add related topics
-                    for topic in data.get("RelatedTopics", [])[:max_results-len(results)]:
-                        if isinstance(topic, dict) and topic.get("Text"):
-                            results.append({
-                                "title": "Related Information",
-                                "content": topic["Text"],
-                                "url": topic.get("FirstURL", ""),
-                                "score": 0.6
-                            })
-                    
-                    return results
-                    
-        except Exception as e:
-            print(f"Fallback search error: {e}")
-        
-        # Final fallback - return a message indicating search unavailable
-        return [{
-            "title": "Web Search Unavailable",
-            "content": f"I cannot search the web for current information about '{query}' at the moment. Please contact the clinic directly for the most up-to-date information at +49 (0) 157 834 488 90 or info@haut-labor.de.",
-            "url": "",
-            "score": 0.1
-        }]
-    
-    def format_search_results(self, results: List[Dict]) -> str:
-        """
-        Format search results into a readable string for the AI.
-        
-        Args:
-            results: List of search result dictionaries
             
-        Returns:
-            Formatted string with all search results
-        """
+            # Fallback to web scraping search
+            results = await self._search_web_scrape(query, max_results)
+            if results:
+                logger.info(f"Web scrape search returned {len(results)} results")
+                return results
+                
+            # Last resort: return helpful message
+            return [{
+                'title': 'Web Search Information',
+                'url': 'https://www.ncbi.nlm.nih.gov/pubmed/',
+                'content': f'For medical research on "{query}", please consult PubMed or speak with a qualified medical professional. This AI assistant cannot provide medical advice.'
+            }]
+            
+        except Exception as e:
+            logger.warning(f"Web search failed: {e}")
+            return [{
+                'title': 'Search Error - Medical Disclaimer',
+                'url': 'https://www.ncbi.nlm.nih.gov/pubmed/',
+                'content': 'Web search is temporarily unavailable. For medical research, please consult PubMed, medical databases, or qualified healthcare professionals.'
+            }]
+    
+    async def _search_tavily(self, query: str, max_results: int) -> List[Dict[str, Any]]:
+        """Search using Tavily API"""
+        try:
+            response = await self.client.post(
+                "https://api.tavily.com/search",
+                json={
+                    "api_key": self.tavily_api_key,
+                    "query": query,
+                    "search_depth": "advanced",
+                    "max_results": max_results,
+                    "include_answer": True,
+                    "include_domains": ["pubmed.ncbi.nlm.nih.gov", "scholar.google.com", "clinicaltrials.gov"]
+                }
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            results = []
+            
+            for result in data.get("results", []):
+                results.append({
+                    'title': result.get('title', 'No title'),
+                    'url': result.get('url', ''),
+                    'content': result.get('content', result.get('snippet', ''))
+                })
+            
+            return results
+            
+        except Exception as e:
+            logger.warning(f"Tavily search failed: {e}")
+            return []
+    
+    async def _search_web_scrape(self, query: str, max_results: int) -> List[Dict[str, Any]]:
+        """Fallback web search using search engines"""
+        try:
+            # Use a public search API or scraping service
+            # For this example, I'll use a simple approach
+            search_url = f"https://api.duckduckgo.com/?q={quote(query)}&format=json&no_html=1&skip_disambig=1"
+            
+            response = await self.client.get(search_url)
+            response.raise_for_status()
+            
+            data = response.json()
+            results = []
+            
+            # Check RelatedTopics for results
+            for topic in data.get("RelatedTopics", [])[:max_results]:
+                if isinstance(topic, dict) and 'Text' in topic:
+                    results.append({
+                        'title': topic.get('Text', '')[:100] + '...',
+                        'url': topic.get('FirstURL', ''),
+                        'content': topic.get('Text', '')
+                    })
+            
+            # Also check AbstractText
+            if data.get("AbstractText") and len(results) < max_results:
+                results.append({
+                    'title': f"Overview: {query}",
+                    'url': data.get("AbstractURL", ""),
+                    'content': data.get("AbstractText", "")
+                })
+            
+            return results
+            
+        except Exception as e:
+            logger.warning(f"Web scrape search failed: {e}")
+            return []
+    
+    def format_search_results(self, results: List[Dict[str, Any]]) -> str:
+        """Format search results for AI consumption"""
         if not results:
-            return "No search results found."
+            return "No search results found. Please consult medical databases or healthcare professionals for medical information."
         
-        formatted_results = [
-            "## Web Search Results",
-            "⚠️ **IMPORTANT**: The following information is from web search results. Always verify medical information with qualified healthcare professionals.\n"
-        ]
+        formatted = "## Web Search Results\n\n"
+        formatted += "⚠️ **Medical Disclaimer**: These are search results from the internet. Always consult qualified healthcare professionals for medical advice.\n\n"
         
         for i, result in enumerate(results, 1):
-            # Validate that we have actual URLs (not hallucinated ones)
-            url = result.get('url', 'Unknown source')
-            if url == "Multiple sources" or url == "DuckDuckGo" or not url:
-                source_note = "*Source: Web search aggregation*"
-            else:
-                source_note = f"*Source: {url}*"
+            title = result.get('title', 'No title')[:100]
+            url = result.get('url', 'No URL')
+            content = result.get('content', 'No content')[:300]
             
-            formatted_results.append(f"### Result {i}: {result['title']}")
-            formatted_results.append(source_note)
-            formatted_results.append(f"**Content:** {result['content']}")
-            formatted_results.append("---\n")
+            formatted += f"### Result {i}: {title}\n"
+            formatted += f"**Source**: {url}\n"
+            formatted += f"**Content**: {content}...\n\n"
         
-        formatted_results.append("**Medical Disclaimer**: This information is for educational purposes only and should not replace professional medical advice. Always consult with qualified healthcare providers for medical decisions.")
+        formatted += "\n---\n"
+        formatted += "**Important**: Always verify medical information with qualified healthcare professionals and peer-reviewed sources."
         
-        return "\n".join(formatted_results)
-
-
-# Convenience function for easy import
-async def search_web(query: str, max_results: int = 5) -> str:
-    """
-    Convenience function to perform a web search and return formatted results.
+        return formatted
     
-    Args:
-        query: The search query
-        max_results: Maximum number of results to return
-        
-    Returns:
-        Formatted string with search results
-    """
-    searcher = WebSearcher()
-    results = await searcher.search_web(query, max_results)
-    return searcher.format_search_results(results)
+    async def close(self):
+        """Close the HTTP client"""
+        await self.client.aclose()
 
+# Global instance
+_searcher = None
 
-# Test function
-async def test_search():
-    """Test the web search functionality."""
-    searcher = WebSearcher()
-    results = await searcher.search_web("latest medical aesthetic treatments 2024")
-    print(searcher.format_search_results(results))
+async def get_searcher() -> WebSearcher:
+    """Get or create global searcher instance"""
+    global _searcher
+    if _searcher is None:
+        _searcher = WebSearcher()
+    return _searcher
 
+async def search_web(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+    """Convenience function for web search"""
+    searcher = await get_searcher()
+    return await searcher.search_web(query, max_results)
 
 if __name__ == "__main__":
-    asyncio.run(test_search())
+    async def test():
+        searcher = WebSearcher()
+        results = await searcher.search_web("Botox effectiveness studies")
+        print(searcher.format_search_results(results))
+        await searcher.close()
+    
+    asyncio.run(test())

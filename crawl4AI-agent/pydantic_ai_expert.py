@@ -18,11 +18,7 @@ load_dotenv()
 # LLM Configuration for Medical Applications
 # Using more capable model for medical accuracy
 llm = os.getenv('LLM_MODEL', 'gpt-4o')  # Upgraded from gpt-4o-mini for medical accuracy
-model = OpenAIModel(
-    llm,
-    temperature=0.1,  # Low temperature for more deterministic, accurate responses
-    max_tokens=1500,  # Reasonable limit for medical responses
-)
+model = OpenAIModel(llm)
 
 logfire.configure(send_to_logfire='if-token-present')
 
