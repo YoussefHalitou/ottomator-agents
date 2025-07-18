@@ -30,18 +30,50 @@ from pydantic_ai.messages import (
     RetryPromptPart,
     ModelMessagesTypeAdapter
 )
-from pydantic_ai_expert import clinic_ai_expert, ClinicAIDeps
+from clinic_types import ClinicAIDeps
 from ai_manager import process_clinic_query
 
 # Load environment variables
 from dotenv import load_dotenv
 load_dotenv()
 
-openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-supabase: Client = Client(
-    os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_SERVICE_KEY")
-)
+# Lazy initialization - only create clients when needed and available
+_openai_client = None
+_supabase_client = None
+
+def get_openai_client():
+    """Get or create OpenAI client if API key is available"""
+    global _openai_client
+    if _openai_client is None:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OpenAI API key not found. Please set OPENAI_API_KEY environment variable.")
+        _openai_client = AsyncOpenAI(api_key=api_key)
+    return _openai_client
+
+def get_supabase_client():
+    """Get or create Supabase client if credentials are available"""
+    global _supabase_client
+    if _supabase_client is None:
+        url = os.getenv("SUPABASE_URL")
+        key = os.getenv("SUPABASE_SERVICE_KEY")
+        if not url or not key:
+            raise ValueError("Supabase credentials not found. Please set SUPABASE_URL and SUPABASE_SERVICE_KEY environment variables.")
+        _supabase_client = Client(url, key)
+    return _supabase_client
+
+def get_deps():
+    """Get clinic dependencies with proper error handling"""
+    try:
+        return ClinicAIDeps(
+            supabase=get_supabase_client(),
+            openai_client=get_openai_client()
+        )
+    except ValueError as e:
+        st.error(f"⚠️ Configuration Error: {str(e)}")
+        st.info("💡 The application requires OpenAI and Supabase API keys to function properly.")
+        return None
+
 
 # Configure logfire to suppress warnings (optional)
 logfire.configure(send_to_logfire='never')
@@ -80,10 +112,9 @@ async def run_agent_with_streaming(user_input: str):
     Shows a nice loading experience while processing.
     """
     # Prepare dependencies
-    deps = ClinicAIDeps(
-        supabase=supabase,
-        openai_client=openai_client
-    )
+    deps = get_deps()
+    if deps is None:
+        return # Exit if dependencies are not available
 
     # Show loading indicator
     message_placeholder = st.empty()
