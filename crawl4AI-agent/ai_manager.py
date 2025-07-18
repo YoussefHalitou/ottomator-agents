@@ -48,7 +48,9 @@ class AIManager:
             "latest", "recent", "current", "new", "updated", "2024", "2025", 
             "now", "today", "this year", "trending", "modern", "newest",
             "price", "cost", "availability", "schedule", "appointment",
-            "comparison", "versus", "vs", "alternative", "competitor"
+            "comparison", "versus", "vs", "alternative", "competitor",
+            "study", "studies", "research", "clinical trial", "evidence",
+            "scientific", "pubmed", "journal", "publication", "findings"
         ]
         
         # Phrases that indicate the AI needs web search
@@ -162,25 +164,19 @@ class AIManager:
         # Extract key terms from the original query
         query_lower = original_query.lower()
         
-        # Base search terms
-        search_terms = []
-        
-        # Add treatment/procedure specific terms
-        if any(term in query_lower for term in ["botox", "filler", "laser", "treatment"]):
-            # Keep medical terms
-            search_terms.append("aesthetic medicine")
-        
-        # Add temporal context for current information
-        if any(term in query_lower for term in ["price", "cost", "latest", "current", "new"]):
-            search_terms.append("2024")
-        
-        # Create search query
-        if "price" in query_lower or "cost" in query_lower:
+        # Optimize for different types of medical information
+        if any(term in query_lower for term in ["study", "studies", "research", "clinical trial"]):
+            # For studies/research queries
+            search_query = f"{original_query} clinical studies pubmed research 2024"
+        elif "price" in query_lower or "cost" in query_lower:
             search_query = f"{original_query} Germany aesthetic clinic pricing 2024"
-        elif "latest" in query_lower or "new" in query_lower:
-            search_query = f"{original_query} latest developments 2024"
+        elif "latest" in query_lower or "new" in query_lower or "recent" in query_lower:
+            search_query = f"{original_query} latest developments research 2024"
+        elif any(term in query_lower for term in ["botox", "filler", "laser", "treatment"]):
+            # For specific treatments
+            search_query = f"{original_query} clinical evidence medical literature 2024"
         else:
-            search_query = f"{original_query} aesthetic medicine Germany"
+            search_query = f"{original_query} aesthetic medicine research"
         
         return search_query
     
