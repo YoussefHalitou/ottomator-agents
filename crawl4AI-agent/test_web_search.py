@@ -50,9 +50,7 @@ def test_ai_manager_keywords():
     print("\n🧪 Testing AI Manager Keyword Detection...")
     
     try:
-        from ai_manager import AIManager
-        
-        manager = AIManager()
+        from ai_manager import test_clinic_query_logic
         
         # Test queries
         test_queries = [
@@ -62,16 +60,21 @@ def test_ai_manager_keywords():
             "Clinical trials for laser treatments"
         ]
         
-        for query in test_queries:
-            # Create a mock RAG response
-            mock_rag_response = {
-                'response': "I don't have current information about this topic.",
-                'complete': False
-            }
-            
-            needs_search = manager._analyze_need_for_web_search(query, mock_rag_response['response'])
-            print(f"🔍 '{query}' → Web search needed: {'✅ YES' if needs_search else '❌ NO'}")
+        async def run_tests():
+            for query in test_queries:
+                result = await test_clinic_query_logic(query)
+                needs_search = result["needs_web_search"]
+                keywords = result["decision_keywords"]
+                
+                print(f"🔍 '{query}'")
+                print(f"   → Web search needed: {'✅ YES' if needs_search else '❌ NO'}")
+                print(f"   → Keywords found: {keywords}")
+                print(f"   → RAG response: {result['rag_response'][:100]}...")
+                if result['web_search_query']:
+                    print(f"   → Web query: {result['web_search_query']}")
+                print()
         
+        asyncio.run(run_tests())
         return True
         
     except Exception as e:
@@ -83,9 +86,7 @@ def test_search_query_optimization():
     print("\n🧪 Testing Search Query Optimization...")
     
     try:
-        from ai_manager import AIManager
-        
-        manager = AIManager()
+        from ai_manager import test_clinic_query_logic
         
         test_queries = [
             "What studies exist on Botox?",
@@ -94,11 +95,16 @@ def test_search_query_optimization():
             "Show me evidence for Morpheus8"
         ]
         
-        for query in test_queries:
-            optimized = manager._create_web_search_query(query, "mock rag response")
-            print(f"🎯 '{query}'")
-            print(f"   → Optimized: '{optimized}'")
+        async def run_optimization_tests():
+            for query in test_queries:
+                result = await test_clinic_query_logic(query)
+                if result['web_search_query']:
+                    print(f"🎯 '{query}'")
+                    print(f"   → Optimized: '{result['web_search_query']}'")
+                    print(f"   → Decision: {'Web search needed' if result['needs_web_search'] else 'RAG sufficient'}")
+                    print()
         
+        asyncio.run(run_optimization_tests())
         return True
         
     except Exception as e:

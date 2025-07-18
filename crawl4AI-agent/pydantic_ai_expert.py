@@ -18,7 +18,16 @@ load_dotenv()
 # LLM Configuration for Medical Applications
 # Using more capable model for medical accuracy
 llm = os.getenv('LLM_MODEL', 'gpt-4o')  # Upgraded from gpt-4o-mini for medical accuracy
-model = OpenAIModel(llm)
+
+# Lazy initialization - model will be created when first needed
+_model = None
+
+def get_model():
+    """Get or create the OpenAI model instance"""
+    global _model
+    if _model is None:
+        _model = OpenAIModel(llm)
+    return _model
 
 logfire.configure(send_to_logfire='if-token-present')
 
@@ -69,12 +78,31 @@ Don't ask the user before taking an action, just search for the information they
 Remember: Medical accuracy and patient safety are paramount. It's better to admit uncertainty than to provide potentially harmful misinformation.
 """
 
-clinic_ai_expert = Agent(
-    model,
-    system_prompt=system_prompt,
-    deps_type=ClinicAIDeps,
-    retries=2
-)
+# Lazy initialization for the agent as well
+_clinic_ai_expert = None
+
+def get_clinic_ai_expert():
+    """Get or create the clinic AI expert agent instance"""
+    global _clinic_ai_expert
+    if _clinic_ai_expert is None:
+        _clinic_ai_expert = Agent(
+            get_model(),
+            system_prompt=system_prompt,
+            deps_type=ClinicAIDeps,
+            retries=2
+        )
+    return _clinic_ai_expert
+
+# For backward compatibility, create a property-like access
+class _ClinicAIExpert:
+    def __getattr__(self, name):
+        return getattr(get_clinic_ai_expert(), name)
+    
+    async def run(self, *args, **kwargs):
+        agent = get_clinic_ai_expert()
+        return await agent.run(*args, **kwargs)
+
+clinic_ai_expert = _ClinicAIExpert()
 
 async def get_embedding(text: str, openai_client: AsyncOpenAI) -> List[float]:
     """Get embedding vector from OpenAI."""

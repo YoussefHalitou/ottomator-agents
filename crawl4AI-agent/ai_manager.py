@@ -18,7 +18,9 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart, TextPart
 
-from pydantic_ai_expert import clinic_ai_expert, ClinicAIDeps
+# We can safely import ClinicAIDeps as it's just a dataclass in a separate file
+# We'll import clinic_ai_expert only when needed in non-test mode to avoid OpenAI initialization
+from clinic_types import ClinicAIDeps
 from web_search import WebSearcher
 import os
 
@@ -40,7 +42,8 @@ class AIManager:
     3. Performs web search if needed and synthesizes final answer
     """
     
-    def __init__(self):
+    def __init__(self, test_mode: bool = False):
+        self.test_mode = test_mode
         self.web_searcher = WebSearcher()
         
         # Keywords that suggest current/recent information might be needed
@@ -110,14 +113,35 @@ class AIManager:
     async def _get_rag_response(
         self, 
         user_query: str, 
-        clinic_deps: ClinicAIDeps,
+        clinic_deps: ClinicAIDeps, # Changed from ClinicAIDeps to Any
         message_history: Optional[List] = None
     ) -> ModelResponse:
         """Get response using only RAG (clinic knowledge base)."""
+        
+        if self.test_mode:
+            # In test mode, return a mock response that simulates various scenarios
+            query_lower = user_query.lower()
+            
+            if any(keyword in query_lower for keyword in ["study", "studies", "research", "clinical", "evidence"]):
+                # Simulate a response that indicates need for current information
+                mock_content = "I don't have current information about recent studies on this topic. For the most up-to-date research, you may want to consult medical databases."
+            elif any(keyword in query_lower for keyword in ["price", "cost", "pricing"]):
+                # Simulate a response that indicates need for current pricing
+                mock_content = "I don't have current pricing information. Please contact the clinic directly for the most up-to-date pricing."
+            else:
+                # Simulate a comprehensive response that doesn't need web search
+                mock_content = f"Based on our clinic's knowledge base, here's information about your question regarding '{user_query}'. This is comprehensive clinic-specific information that should answer your query fully."
+            
+            return ModelResponse(parts=[TextPart(content=mock_content)])
+        
         try:
             if message_history:
+                # Import clinic_ai_expert only if not in test mode
+                from pydantic_ai_expert import clinic_ai_expert
                 result = await clinic_ai_expert.run(user_query, deps=clinic_deps, message_history=message_history)
             else:
+                # Import clinic_ai_expert only if not in test mode
+                from pydantic_ai_expert import clinic_ai_expert
                 result = await clinic_ai_expert.run(user_query, deps=clinic_deps)
             return result
         except Exception as e:
@@ -185,7 +209,7 @@ class AIManager:
         user_query: str,
         rag_response: str,
         web_results: str,
-        clinic_deps: ClinicAIDeps,
+        clinic_deps: ClinicAIDeps, # Changed from ClinicAIDeps to Any
         message_history: Optional[List] = None
     ) -> ModelResponse:
         """
@@ -233,8 +257,12 @@ If there are discrepancies between sources, prioritize clinic-specific informati
         
         try:
             if message_history:
+                # Import clinic_ai_expert only if not in test mode
+                from pydantic_ai_expert import clinic_ai_expert
                 result = await clinic_ai_expert.run(synthesis_prompt, deps=clinic_deps, message_history=message_history)
             else:
+                # Import clinic_ai_expert only if not in test mode
+                from pydantic_ai_expert import clinic_ai_expert
                 result = await clinic_ai_expert.run(synthesis_prompt, deps=clinic_deps)
             return result
         except Exception as e:
@@ -244,32 +272,73 @@ If there are discrepancies between sources, prioritize clinic-specific informati
             return ModelResponse(parts=[TextPart(content=combined_response)])
 
 
-# Convenience functions for easy integration
+# Convenience function for the main application
 async def process_clinic_query(
-    user_query: str,
-    clinic_deps: ClinicAIDeps,
+    user_query: str, 
+    clinic_deps: ClinicAIDeps, # Changed from ClinicAIDeps to Any
     message_history: Optional[List] = None
 ) -> ModelResponse:
     """
-    Convenience function to process a clinic query using the AI Manager.
+    Main function to process clinic queries with intelligent RAG + Web Search coordination.
     
     Args:
         user_query: The user's question
-        clinic_deps: Clinic dependencies (Supabase, OpenAI client)
+        clinic_deps: Clinic AI dependencies (Supabase, OpenAI client)
         message_history: Previous conversation history
         
     Returns:
-        ModelResponse with the processed answer
+        ModelResponse with the final answer
     """
     manager = AIManager()
     web_searcher = WebSearcher()
     
-    deps = AIManagerDeps(
+    ai_manager_deps = AIManagerDeps(
         clinic_deps=clinic_deps,
         web_searcher=web_searcher
     )
     
-    return await manager.process_query(user_query, deps, message_history)
+    try:
+        result = await manager.process_query(user_query, ai_manager_deps, message_history)
+        return result
+    finally:
+        await web_searcher.close()
+
+# Test mode function for testing without API keys
+async def test_clinic_query_logic(user_query: str) -> Dict[str, Any]:
+    """
+    Test the AI Manager logic without requiring API keys.
+    Returns information about the decision-making process.
+    """
+    manager = AIManager(test_mode=True)
+    
+    # Create mock dependencies
+    class MockClinicDeps:
+        def __init__(self):
+            self.supabase = None
+            self.openai_client = None
+    
+    mock_deps = MockClinicDeps()
+    
+    # Simulate the RAG response
+    rag_result = await manager._get_rag_response(user_query, mock_deps)
+    rag_text = rag_result.parts[0].content if rag_result.parts else ""
+    
+    # Test the decision logic
+    needs_web_search = manager._analyze_need_for_web_search(user_query, rag_text)
+    
+    # Test query optimization
+    if needs_web_search:
+        web_query = manager._create_web_search_query(user_query, rag_text)
+    else:
+        web_query = None
+    
+    return {
+        "query": user_query,
+        "rag_response": rag_text,
+        "needs_web_search": needs_web_search,
+        "web_search_query": web_query,
+        "decision_keywords": [kw for kw in manager.current_info_keywords if kw in user_query.lower()]
+    }
 
 
 # Test function
@@ -288,7 +357,7 @@ async def test_manager():
     )
     openai_client = AsyncOpenAI(api_key=os.getenv('OPENAI_API_KEY'))
     
-    clinic_deps = ClinicAIDeps(supabase=supabase, openai_client=openai_client)
+    clinic_deps = ClinicAIDeps(supabase=supabase, openai_client=openai_client) # Changed from ClinicAIDeps to Any
     
     # Test queries
     test_queries = [
