@@ -21,28 +21,41 @@ model = OpenAIModel(llm)
 logfire.configure(send_to_logfire='if-token-present')
 
 @dataclass
-class PydanticAIDeps:
+class ClinicAIDeps:
     supabase: Client
     openai_client: AsyncOpenAI
 
 system_prompt = """
-You are an expert at Pydantic AI - a Python AI agent framework that you have access to all the documentation to,
-including examples, an API reference, and other resources to help you build Pydantic AI agents.
+You are an expert consultant for Haut Labor Oldenburg, a premium aesthetic medicine clinic in Germany led by Dr. Larisa Pfahl.
 
-Your only job is to assist with this and you don't answer other questions besides describing what you are able to do.
+Your role is to provide detailed information about the clinic's treatments, procedures, and services based on the comprehensive website content that has been crawled and indexed.
 
-Don't ask the user before taking an action, just do it. Always make sure you look at the documentation with the provided tools before answering the user's question unless you have already.
+You have access to information about:
+- Dr. Larisa Pfahl (Gynecologist specialized in minimally invasive aesthetic treatments)
+- Over 30 different aesthetic treatments including:
+  * Botox/Faltenrelaxan treatments
+  * Dermal fillers (Hyaluron-Filler)
+  * Laser treatments (CO2 Laser, LaseMD, Lumecca)
+  * Radiofrequency treatments (Morpheus8, Ultherapy)
+  * Body contouring (Sculptra, Radiesse, Lipolyse)
+  * Skin treatments (HydraFacial, Skinbooster, Vampirlifting)
+  * Hair removal and PRP therapy
+  * Specialized treatments for men
+  * Aesthetic gynecology
 
-When you first look at the documentation, always start with RAG.
-Then also always check the list of available documentation pages and retrieve the content of page(s) if it'll help.
+When users ask questions, always use the RAG tool first to find relevant information from the clinic's website content.
+Provide detailed, accurate information about treatments, procedures, expected results, and aftercare.
+Maintain a professional, knowledgeable tone while being helpful and informative.
 
-Always let the user know when you didn't find the answer in the documentation or the right URL - be honest.
+If you cannot find specific information in the crawled content, be honest about it and suggest contacting the clinic directly at +49 (0) 157 834 488 90 or info@haut-labor.de.
+
+Don't ask the user before taking an action, just search for the information they need.
 """
 
-pydantic_ai_expert = Agent(
+clinic_ai_expert = Agent(
     model,
     system_prompt=system_prompt,
-    deps_type=PydanticAIDeps,
+    deps_type=ClinicAIDeps,
     retries=2
 )
 
@@ -58,40 +71,51 @@ async def get_embedding(text: str, openai_client: AsyncOpenAI) -> List[float]:
         print(f"Error getting embedding: {e}")
         return [0] * 1536  # Return zero vector on error
 
-@pydantic_ai_expert.tool
-async def retrieve_relevant_documentation(ctx: RunContext[PydanticAIDeps], user_query: str) -> str:
+@clinic_ai_expert.tool
+async def retrieve_relevant_clinic_information(ctx: RunContext[ClinicAIDeps], user_query: str) -> str:
     """
-    Retrieve relevant documentation chunks based on the query with RAG.
+    Retrieve relevant information about Haut Labor Oldenburg clinic based on the query with RAG.
     
     Args:
         ctx: The context including the Supabase client and OpenAI client
-        user_query: The user's question or query
+        user_query: The user's question or query about treatments, procedures, or clinic services
         
     Returns:
-        A formatted string containing the top 5 most relevant documentation chunks
+        A formatted string containing the top 5 most relevant clinic information chunks
     """
     try:
         # Get the embedding for the query
         query_embedding = await get_embedding(user_query, ctx.deps.openai_client)
         
-        # Query Supabase for relevant documents
+        # Query Supabase for relevant documents from the German clinic
         result = ctx.deps.supabase.rpc(
             'match_site_pages',
             {
                 'query_embedding': query_embedding,
                 'match_count': 5,
-                'filter': {'source': 'pydantic_ai_docs'}
+                'filter': {}
             }
         ).execute()
         
-        if not result.data:
-            return "No relevant documentation found."
+        # Filter for haut-labor.de URLs
+        if result.data:
+            filtered_data = [doc for doc in result.data if 'haut-labor.de' in doc.get('url', '')]
+            if not filtered_data:
+                # If no filtered data, try direct query
+                result = ctx.deps.supabase.from_('site_pages').select('*').like('url', '%haut-labor.de%').limit(5).execute()
+                filtered_data = result.data if result.data else []
+        else:
+            filtered_data = []
+            
+        if not filtered_data:
+            return "No relevant clinic information found. Please contact the clinic directly at +49 (0) 157 834 488 90 or info@haut-labor.de."
             
         # Format the results
         formatted_chunks = []
-        for doc in result.data:
+        for doc in filtered_data:
             chunk_text = f"""
 # {doc['title']}
+**URL:** {doc['url']}
 
 {doc['content']}
 """
@@ -101,22 +125,22 @@ async def retrieve_relevant_documentation(ctx: RunContext[PydanticAIDeps], user_
         return "\n\n---\n\n".join(formatted_chunks)
         
     except Exception as e:
-        print(f"Error retrieving documentation: {e}")
-        return f"Error retrieving documentation: {str(e)}"
+        print(f"Error retrieving clinic information: {e}")
+        return f"Error retrieving clinic information: {str(e)}"
 
-@pydantic_ai_expert.tool
-async def list_documentation_pages(ctx: RunContext[PydanticAIDeps]) -> List[str]:
+@clinic_ai_expert.tool
+async def list_clinic_pages(ctx: RunContext[ClinicAIDeps]) -> List[str]:
     """
-    Retrieve a list of all available Pydantic AI documentation pages.
+    Retrieve a list of all available Haut Labor Oldenburg clinic pages.
     
     Returns:
-        List[str]: List of unique URLs for all documentation pages
+        List[str]: List of unique URLs for all clinic pages
     """
     try:
-        # Query Supabase for unique URLs where source is pydantic_ai_docs
+        # Query Supabase for unique URLs from haut-labor.de
         result = ctx.deps.supabase.from_('site_pages') \
             .select('url') \
-            .eq('metadata->>source', 'pydantic_ai_docs') \
+            .like('url', '%haut-labor.de%') \
             .execute()
         
         if not result.data:
@@ -127,17 +151,17 @@ async def list_documentation_pages(ctx: RunContext[PydanticAIDeps]) -> List[str]
         return urls
         
     except Exception as e:
-        print(f"Error retrieving documentation pages: {e}")
+        print(f"Error retrieving clinic pages: {e}")
         return []
 
-@pydantic_ai_expert.tool
-async def get_page_content(ctx: RunContext[PydanticAIDeps], url: str) -> str:
+@clinic_ai_expert.tool
+async def get_page_content(ctx: RunContext[ClinicAIDeps], url: str) -> str:
     """
-    Retrieve the full content of a specific documentation page by combining all its chunks.
+    Retrieve the full content of a specific clinic page by combining all its chunks.
     
     Args:
         ctx: The context including the Supabase client
-        url: The URL of the page to retrieve
+        url: The URL of the clinic page to retrieve
         
     Returns:
         str: The complete page content with all chunks combined in order
@@ -147,7 +171,6 @@ async def get_page_content(ctx: RunContext[PydanticAIDeps], url: str) -> str:
         result = ctx.deps.supabase.from_('site_pages') \
             .select('title, content, chunk_number') \
             .eq('url', url) \
-            .eq('metadata->>source', 'pydantic_ai_docs') \
             .order('chunk_number') \
             .execute()
         
@@ -155,7 +178,7 @@ async def get_page_content(ctx: RunContext[PydanticAIDeps], url: str) -> str:
             return f"No content found for URL: {url}"
             
         # Format the page with its title and all chunks
-        page_title = result.data[0]['title'].split(' - ')[0]  # Get the main title
+        page_title = result.data[0]['title']
         formatted_content = [f"# {page_title}\n"]
         
         # Add each chunk's content
