@@ -6,6 +6,7 @@ Run this to have a conversation about treatments and services.
 
 import asyncio
 from pydantic_ai_expert import clinic_ai_expert, ClinicAIDeps
+from ai_manager import process_clinic_query
 from dotenv import load_dotenv
 from supabase import create_client, Client
 from openai import AsyncOpenAI
@@ -54,8 +55,26 @@ async def interactive_chat():
         
         try:
             print("\n🤖 Assistant: ", end="")
-            result = await clinic_ai_expert.run(user_input, deps=deps)
-            print(result.data)
+            print("🔍 Processing your question...")
+            
+            # Use the AI Manager to process the query
+            result = await process_clinic_query(user_input, deps)
+            
+            # Extract the response text
+            if hasattr(result, 'data'):
+                response_text = result.data
+            else:
+                # Handle different response formats
+                if hasattr(result, 'parts') and result.parts:
+                    response_text = ""
+                    for part in result.parts:
+                        if hasattr(part, 'content'):
+                            response_text += part.content
+                else:
+                    response_text = str(result)
+            
+            print(f"\n{response_text}")
+            
         except Exception as e:
             print(f"❌ Error: {e}")
             print("Please try again or contact the clinic directly at +49 (0) 157 834 488 90")

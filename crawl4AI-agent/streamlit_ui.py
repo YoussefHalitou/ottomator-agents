@@ -31,6 +31,7 @@ from pydantic_ai.messages import (
     ModelMessagesTypeAdapter
 )
 from pydantic_ai_expert import clinic_ai_expert, ClinicAIDeps
+from ai_manager import process_clinic_query
 
 # Load environment variables
 from dotenv import load_dotenv
@@ -75,8 +76,8 @@ def display_message_part(part):
 
 async def run_agent_with_streaming(user_input: str):
     """
-    Run the agent with streaming text for the user_input prompt,
-    while maintaining the entire conversation in `st.session_state.messages`.
+    Run the AI Manager to process the user input with intelligent RAG + web search.
+    Shows a nice loading experience while processing.
     """
     # Prepare dependencies
     deps = ClinicAIDeps(
@@ -84,31 +85,60 @@ async def run_agent_with_streaming(user_input: str):
         openai_client=openai_client
     )
 
-    # Run the agent in a stream
-    async with clinic_ai_expert.run_stream(
-        user_input,
-        deps=deps,
-        message_history= st.session_state.messages[:-1],  # pass entire conversation so far
-    ) as result:
-        # We'll gather partial text to show incrementally
-        partial_text = ""
-        message_placeholder = st.empty()
-
-        # Render partial text as it arrives
-        async for chunk in result.stream_text(delta=True):
-            partial_text += chunk
-            message_placeholder.markdown(partial_text)
-
-        # Now that the stream is finished, we have a final result.
-        # Add new messages from this run, excluding user-prompt messages
-        filtered_messages = [msg for msg in result.new_messages() 
-                            if not (hasattr(msg, 'parts') and 
-                                    any(part.part_kind == 'user-prompt' for part in msg.parts))]
-        st.session_state.messages.extend(filtered_messages)
-
-        # Add the final response to the messages
+    # Show loading indicator
+    message_placeholder = st.empty()
+    
+    # Show different loading messages to indicate what's happening
+    loading_messages = [
+        "🔍 Searching clinic knowledge base...",
+        "🧠 Analyzing your question...", 
+        "🌐 Checking for current information...",
+        "📝 Preparing comprehensive answer..."
+    ]
+    
+    import time
+    
+    # Show loading progression
+    for i, loading_msg in enumerate(loading_messages):
+        message_placeholder.markdown(loading_msg)
+        await asyncio.sleep(0.5)  # Brief pause between loading messages
+    
+    try:
+        # Use the AI Manager to process the query
+        result = await process_clinic_query(
+            user_input,
+            deps,
+            message_history=st.session_state.messages[:-1]  # pass entire conversation so far
+        )
+        
+        # Get the response text
+        if hasattr(result, 'data'):
+            response_text = result.data
+        else:
+            # Handle different response formats
+            if hasattr(result, 'parts') and result.parts:
+                response_text = ""
+                for part in result.parts:
+                    if hasattr(part, 'content'):
+                        response_text += part.content
+            else:
+                response_text = str(result)
+        
+        # Display the final response
+        message_placeholder.markdown(response_text)
+        
+        # Add the response to session state
         st.session_state.messages.append(
-            ModelResponse(parts=[TextPart(content=partial_text)])
+            ModelResponse(parts=[TextPart(content=response_text)])
+        )
+        
+    except Exception as e:
+        error_message = f"❌ I encountered an error while processing your question: {str(e)}\n\nPlease try again or contact the clinic directly at +49 (0) 157 834 488 90 or info@haut-labor.de."
+        message_placeholder.markdown(error_message)
+        
+        # Add error response to session state
+        st.session_state.messages.append(
+            ModelResponse(parts=[TextPart(content=error_message)])
         )
 
 
