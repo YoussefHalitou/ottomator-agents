@@ -217,14 +217,22 @@ I have two sources of information:
 2. CURRENT WEB INFORMATION:
 {web_results}
 
+CRITICAL INSTRUCTIONS:
+- Do NOT fabricate, invent, or hallucinate any studies, research papers, or specific sources
+- Do NOT create fake URLs, website names, or publication citations
+- If you don't have specific information, clearly state this limitation
+- Only reference information that is explicitly provided in the sources above
+- Be honest about what information is available vs. what is not
+
 Please provide a comprehensive answer that:
 - Prioritizes our clinic's specific information and services
-- Supplements with current/general information from web search where helpful
+- Supplements with general information from web search where helpful
 - Maintains focus on Haut Labor Oldenburg clinic
 - Provides actionable advice for the user
 - Includes clinic contact information when appropriate
+- Always recommends consulting with qualified medical professionals
 
-If there are discrepancies between sources, prioritize clinic-specific information but mention current industry trends when relevant.
+If there are discrepancies between sources, prioritize clinic-specific information but mention general industry information when relevant.
 """
         
         try:

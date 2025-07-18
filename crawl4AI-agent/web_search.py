@@ -164,13 +164,25 @@ class WebSearcher:
         if not results:
             return "No search results found."
         
-        formatted_results = ["## Web Search Results\n"]
+        formatted_results = [
+            "## Web Search Results",
+            "⚠️ **IMPORTANT**: The following information is from web search results. Always verify medical information with qualified healthcare professionals.\n"
+        ]
         
         for i, result in enumerate(results, 1):
+            # Validate that we have actual URLs (not hallucinated ones)
+            url = result.get('url', 'Unknown source')
+            if url == "Multiple sources" or url == "DuckDuckGo" or not url:
+                source_note = "*Source: Web search aggregation*"
+            else:
+                source_note = f"*Source: {url}*"
+            
             formatted_results.append(f"### Result {i}: {result['title']}")
-            formatted_results.append(f"**Source:** {result['url']}")
+            formatted_results.append(source_note)
             formatted_results.append(f"**Content:** {result['content']}")
             formatted_results.append("---\n")
+        
+        formatted_results.append("**Medical Disclaimer**: This information is for educational purposes only and should not replace professional medical advice. Always consult with qualified healthcare providers for medical decisions.")
         
         return "\n".join(formatted_results)
 

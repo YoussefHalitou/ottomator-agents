@@ -80,40 +80,50 @@ def analyze_need_for_web_search(user_query: str, rag_response: Dict) -> bool:
     return query_needs_current or response_indicates_search or incomplete_response
 
 def simulate_web_search(query: str) -> str:
-    """Simulate web search results"""
+    """Simulate web search results - DEMO ONLY with clearly marked simulated content"""
     query_lower = query.lower()
     
     if "price" in query_lower or "cost" in query_lower:
         return """
-**🌐 Current Web Information:**
+**🌐 Web Search Results (DEMO SIMULATION):**
 
-**Result 1: Botox Treatment Pricing Germany 2024**
-*Source: aesthetic-medicine-germany.com*
-Average Botox prices in Germany range from €200-400 per treatment area. Premium clinics may charge €300-500 depending on location and expertise. Prices have increased 10-15% in 2024 due to updated formulations and increased demand.
+⚠️ **DEMO NOTE**: The following are simulated search results for demonstration purposes only. Real implementation would use actual web search APIs.
 
-**Result 2: Aesthetic Treatment Costs**
-*Source: medical-aesthetics.de*
-Current market rates for aesthetic treatments show Botox at €250-450 per area, with experienced practitioners typically charging premium rates. Always verify current pricing directly with clinics.
+**General Pricing Information:**
+- Aesthetic treatment pricing varies significantly by region, clinic, and practitioner experience
+- Prices are influenced by factors like location, equipment quality, and practitioner credentials
+- Always contact clinics directly for current, accurate pricing
+- Consider consultation fees, follow-up appointments, and package deals
+
+**Important**: For actual pricing information, contact certified practitioners directly.
 """
     elif "latest" in query_lower or "new" in query_lower:
         return """
-**🌐 Current Web Information:**
+**🌐 Web Search Results (DEMO SIMULATION):**
 
-**Result 1: Latest Aesthetic Medicine Trends 2024**
-*Source: aesthetic-innovations.com*
-2024 has seen significant advances in non-invasive treatments. New techniques include combination therapies, precision laser treatments, and enhanced dermal filler formulations with longer-lasting results.
+⚠️ **DEMO NOTE**: The following are simulated search results for demonstration purposes only. Real implementation would use actual web search APIs.
 
-**Result 2: Modern Aesthetic Procedures**
-*Source: beauty-tech-trends.com*
-The latest developments include AI-assisted treatment planning, minimally invasive body contouring, and personalized skincare protocols based on genetic analysis.
+**General Industry Trends:**
+- Non-invasive procedures continue to grow in popularity
+- Patients increasingly seek natural-looking results
+- Combination treatments are becoming more common
+- Technology continues to advance in aesthetic medicine
+
+**Important**: For current treatment options and innovations, consult with qualified medical professionals.
 """
     else:
         return """
-**🌐 Current Web Information:**
+**🌐 Web Search Results (DEMO SIMULATION):**
 
-**Result 1: General Information**
-*Source: health-info.com*
-Current information about aesthetic medicine shows continued growth in non-invasive procedures with focus on natural-looking results and minimal downtime.
+⚠️ **DEMO NOTE**: The following are simulated search results for demonstration purposes only. Real implementation would use actual web search APIs.
+
+**General Information:**
+- Aesthetic medicine is a rapidly evolving field
+- Safety and efficacy should always be the primary considerations
+- Consultation with qualified practitioners is essential
+- Individual results may vary
+
+**Important**: Always verify information with medical professionals and official sources.
 """
 
 def create_final_answer(user_query: str, rag_response: Dict, web_results: str = None) -> str:
